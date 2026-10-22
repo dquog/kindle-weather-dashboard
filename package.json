@@ -1,0 +1,15 @@
+{
+  "name": "kindle-weather-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Serverless e-ink weather dashboard for a jailbroken Kindle Paperwhite (1072x1448, 8-bit grayscale). Rendered by GitHub Actions, displayed via FBInk.",
+  "scripts": {
+    "render": "node src/render.mjs",
+    "preview": "node src/render.mjs --keep-html"
+  },
+  "dependencies": {
+    "playwright": "^1.49.0",
+    "sharp": "^0.33.5"
+  }
+}

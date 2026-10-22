@@ -1,0 +1,18 @@
+{
+  "location": {
+    "name": "London",
+    "latitude": 51.5072,
+    "longitude": -0.1276,
+    "timezone": "auto"
+  },
+  "units": {
+    "temperature": "celsius",
+    "wind": "kmh",
+    "precipitation": "mm"
+  },
+  "display": {
+    "width": 1072,
+    "height": 1448,
+    "note": "Kindle Paperwhite 7th gen (PW3) = 1072x1448. Change for other models: PW5/Signature=1236x1648, Scribe=1860x2480."
+  }
+}
