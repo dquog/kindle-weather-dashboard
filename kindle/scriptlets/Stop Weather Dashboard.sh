@@ -4,11 +4,13 @@
 # Icon: /mnt/us/dashboard/icon-stop.png
 # DontUseFBInk
 
-# Stops the weather dashboard and lets the Kindle sleep normally again.
+# Stops the weather dashboard and restores the normal Kindle UI and sleep.
 PIDFILE=/tmp/weatherdash.pid
-if [ -f "$PIDFILE" ]; then
-  kill "$(cat "$PIDFILE")" 2>/dev/null
-  rm -f "$PIDFILE"
-fi
-pkill -f /mnt/us/dashboard/weather-dash.sh 2>/dev/null
+[ -f "$PIDFILE" ] && kill -9 "$(cat "$PIDFILE")" 2>/dev/null
+pkill -9 -f /mnt/us/dashboard/weather-dash.sh 2>/dev/null
+pkill -f "com.lab126.powerd goingToScreenSaver" 2>/dev/null
+rm -f "$PIDFILE"
 lipc-set-prop com.lab126.powerd preventScreenSaver 0 2>/dev/null
+if [ -f /etc/upstart/lab126_gui.conf ]; then start lab126_gui >/dev/null 2>&1
+else /etc/init.d/framework start >/dev/null 2>&1; fi
+echo "$(date '+%Y-%m-%d %H:%M:%S') stopped from tile" >> /mnt/us/dashboard/weatherdash.log

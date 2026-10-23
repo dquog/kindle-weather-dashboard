@@ -6,6 +6,9 @@
 #
 # Started/stopped by the "Weather Dashboard" / "Stop Weather Dashboard"
 # library tiles (scriptlets in /mnt/us/documents).
+#
+# While running, the stock Kindle UI is paused so it can't draw over the
+# dashboard. To exit: press the power button (or hold it ~15s to restart).
 # ---------------------------------------------------------------------------
 
 # Your GitHub Pages dashboard URL
@@ -24,30 +27,66 @@ if [ -z "$FBINK" ] || [ ! -x "$FBINK" ]; then
   exit 1
 fi
 
-echo "Weather dashboard starting. URL: $URL"
-echo "Refresh every ${INTERVAL}s, full refresh every ${FULL_EVERY}th update. Ctrl-C to stop."
+log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*"; }
+
+# Pause / resume the stock Kindle UI (same approach KOReader uses).
+gui_stop() {
+  if [ -f /etc/upstart/lab126_gui.conf ]; then stop lab126_gui >/dev/null 2>&1
+  else /etc/init.d/framework stop >/dev/null 2>&1; fi
+}
+gui_start() {
+  if [ -f /etc/upstart/lab126_gui.conf ]; then start lab126_gui >/dev/null 2>&1
+  else /etc/init.d/framework start >/dev/null 2>&1; fi
+}
+
+cleanup() {
+  log "exiting, restoring Kindle UI"
+  rm -f "$PIDFILE"
+  lipc-set-prop com.lab126.powerd preventScreenSaver 0 2>/dev/null
+  gui_start
+  exit 0
+}
+trap cleanup TERM INT
+trap '' HUP
 
 echo $$ > "$PIDFILE"   # the loop records its own PID so Start/Stop can find it
+log "loop started (pid $$)"
+
+# Let the library finish redrawing after the tile closes, then take over the screen.
+sleep 4
+gui_stop
+log "stock UI paused"
+sleep 2
+lipc-set-prop com.lab126.powerd preventScreenSaver 1 2>/dev/null
 
 count=0
-"$FBINK" -c -f >/dev/null 2>&1   # start with one clean flashing clear
-
 while true; do
-  # Keep the device awake and WiFi on (ignored if unsupported on your firmware).
-  lipc-set-prop com.lab126.powerd preventScreenSaver 1 2>/dev/null
   lipc-set-prop com.lab126.cmd wirelessEnable 1 2>/dev/null
 
   if curl -fsSL --max-time 60 -o "$TMP" "$URL"; then
     if [ "$((count % FULL_EVERY))" -eq 0 ]; then
-      "$FBINK" -c -f >/dev/null 2>&1            # periodic flashing full refresh
+      "$FBINK" -q -c -f                         # periodic flashing full refresh
     fi
     "$FBINK" -q -g file="$TMP",halign=CENTER,valign=CENTER
-    echo "$(date '+%H:%M') displayed (update #$count)"
+    log "displayed (update #$count)"
   else
-    echo "$(date '+%H:%M') fetch failed; will retry next cycle" >&2
+    log "fetch failed; will retry next cycle"
     "$FBINK" -q -y 2 -m "Dashboard offline - retrying..."
   fi
-
   count=$((count + 1))
-  sleep "$INTERVAL"
+
+  # Wait for the next refresh, exiting early if the power button is pressed.
+  # If lipc-wait-event returns too fast (unsupported flag etc.), fall back to sleep.
+  started=$(date +%s)
+  EV=""
+  if command -v lipc-wait-event >/dev/null 2>&1; then
+    EV=$(lipc-wait-event -s "$INTERVAL" com.lab126.powerd goingToScreenSaver 2>/dev/null)
+  fi
+  case "$EV" in
+    *goingToScreenSaver*) log "power button pressed"; cleanup ;;
+  esac
+  waited=$(( $(date +%s) - started ))
+  if [ "$waited" -lt 5 ]; then
+    sleep "$INTERVAL" & wait $!
+  fi
 done
