@@ -24,6 +24,7 @@ SCREENS="dashboard tfl"   # PNG names, shown in this order
 
 SCREEN_MINUTES=2     # how long each screen stays up before switching
 TRIGGER_MINUTES=15   # ask GitHub for a fresh render this often (needs the token file)
+AUTO_EXIT_MINUTES=10 # safety net: exit by itself after this long (0 = run until tapped)
 FULL_EVERY=6         # flashing full-screen refresh every Nth screen change (clears ghosting)
 
 # Optional: a fine-grained GitHub token (Actions: read & write on this repo only).
@@ -77,7 +78,10 @@ trap '' HUP
 
 # True while the Kindle's USB storage (/mnt/us) is mounted on the Kindle itself.
 # When a computer connects in USB-drive mode it gets unmounted; then we hand back.
+# In USB-drive mode /mnt/us can stay listed as mounted while its files vanish,
+# so check that our own files are still visible too.
 userstore_ok() {
+  [ -f /mnt/us/dashboard/weather-dash.sh ] || return 1
   [ -r /proc/mounts ] || return 0
   grep -q ' /mnt/us ' /proc/mounts
 }
@@ -200,6 +204,10 @@ while true; do
   fi
 
   minute=$((minute + 1))
+  if [ "$AUTO_EXIT_MINUTES" -gt 0 ] && [ "$minute" -ge "$AUTO_EXIT_MINUTES" ]; then
+    log "safety timer: exiting after $AUTO_EXIT_MINUTES minutes"
+    exit 0
+  fi
   if [ $((minute % TRIGGER_MINUTES)) -eq 0 ]; then
     lipc-set-prop com.lab126.cmd wirelessEnable 1 2>/dev/null
     trigger_render
