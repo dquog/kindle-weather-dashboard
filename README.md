@@ -8,7 +8,8 @@ A minimalist e-ink dashboard for a **jailbroken Kindle Paperwhite 7th gen**
 - **TfL Status** — the Northern line featured at the top, plus every Tube,
   Elizabeth line, Overground and DLR line. Data from the [TfL API](https://api.tfl.gov.uk).
 
-The Kindle draws a **live clock** into the header of both screens every minute.
+The Kindle draws a **live clock** into the header of both screens every minute,
+and both screens share a **Kindle Home** button that exits the dashboard.
 
 No Raspberry Pi, no always-on computer.
 
@@ -38,9 +39,11 @@ GitHub Actions                              Kindle (WinterBreak + FBInk)
 ## Using it on the Kindle
 
 Tap **Weather Dashboard** in the library. The stock Kindle UI pauses and the
-dashboard takes over. **Press the power button to exit** (or tap
-**Stop Weather Dashboard** if the UI is showing; holding power ~15s to restart
-always works too). A log is written to `dashboard/weatherdash.log`.
+dashboard takes over. **Tap the "Kindle Home" button** (bottom-right) to go back
+to the Kindle home screen; taps anywhere else are ignored and it never times out.
+Plugging the Kindle into a computer also hands the screen back, and holding the
+power button ~40s to restart always works. A log is written to
+`dashboard/weatherdash.log` (including where each tap landed).
 
 ## Keeping it fresh: the GitHub token (recommended)
 

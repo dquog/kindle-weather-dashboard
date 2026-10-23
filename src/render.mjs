@@ -1,7 +1,8 @@
 // Orchestrates: load config -> fetch data -> build HTML -> screenshot (Playwright)
 // -> convert to exact-size 8-bit grayscale PNG (sharp).
 // Output: public/dashboard.png (weather), public/tfl.png (TfL status),
-//         public/clock.txt ("top left width height" of the header clock box).
+//         public/clock.txt and public/home.txt ("top left width height" of the
+//         header clock box and the footer Home button, used by the Kindle).
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -37,14 +38,16 @@ async function main() {
 
   const browser = await chromium.launch({ args: ["--no-sandbox", "--force-color-profile=srgb"] });
   const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
-  const clockBoxes = [];
+  const boxes = { clock: [], home: [] };
   for (const s of screens) {
     if (keepHtml) await writeFile(join(out, `${s.file}.html`), s.html);
     await page.setContent(s.html, { waitUntil: "networkidle" });
-    clockBoxes.push(await page.$eval("#clock", (el) => {
-      const r = el.getBoundingClientRect();
-      return [r.top, r.left, r.width, r.height].map(Math.round).join(" ");
-    }));
+    for (const id of Object.keys(boxes)) {
+      boxes[id].push(await page.$eval(`#${id}`, (el) => {
+        const r = el.getBoundingClientRect();
+        return [r.top, r.left, r.width, r.height].map(Math.round).join(" ");
+      }));
+    }
     const raw = await page.screenshot({ clip: { x: 0, y: 0, width, height } });
 
     // Convert to exact-size, 8-bit single-channel grayscale PNG for the Kindle.
@@ -58,12 +61,13 @@ async function main() {
   }
   await browser.close();
 
-  // The Kindle draws its live clock into this box, so it must match on every screen.
-  if (new Set(clockBoxes).size !== 1) {
-    throw new Error(`Clock box differs between screens: ${clockBoxes.join(" / ")}`);
+  // The Kindle draws the clock into, and takes Home taps from, these boxes,
+  // so each must be in the same place on every screen.
+  for (const [id, list] of Object.entries(boxes)) {
+    if (new Set(list).size !== 1) throw new Error(`#${id} differs between screens: ${list.join(" / ")}`);
+    await writeFile(join(out, `${id}.txt`), list[0] + "\n");
+    console.log(`${id} box (top left width height): ${list[0]}`);
   }
-  await writeFile(join(out, "clock.txt"), clockBoxes[0] + "\n");
-  console.log(`Clock box (top left width height): ${clockBoxes[0]}`);
 
   // Minimal landing page for GitHub Pages (also lets you eyeball both screens in a browser).
   const t = Date.now();

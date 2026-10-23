@@ -5,7 +5,7 @@
 # DontUseFBInk
 
 # Tap to show the dashboard full-screen. Every tap restarts it.
-# To exit: tap the screen (or press any button).
+# To exit: tap the Kindle Home button (bottom-right of the dashboard).
 LOG=/mnt/us/dashboard/weatherdash.log
 PIDFILE=/tmp/weatherdash.pid
 

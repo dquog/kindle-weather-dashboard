@@ -9,7 +9,7 @@
 # library tiles (scriptlets in /mnt/us/documents).
 #
 # While running, the stock Kindle UI is paused so it can't draw over the
-# dashboard. To exit: tap the screen (or press any button).
+# dashboard. To exit: tap the Kindle Home button in the bottom-right corner.
 # ---------------------------------------------------------------------------
 
 # Run from a copy in /var/tmp (RAM). Plugging in USB unmounts /mnt/us; a script
@@ -24,7 +24,6 @@ SCREENS="dashboard tfl"   # PNG names, shown in this order
 
 SCREEN_MINUTES=2     # how long each screen stays up before switching
 TRIGGER_MINUTES=15   # ask GitHub for a fresh render this often (needs the token file)
-AUTO_EXIT_MINUTES=10 # safety net: exit by itself after this long (0 = run until tapped)
 FULL_EVERY=6         # flashing full-screen refresh every Nth screen change (clears ghosting)
 
 # Optional: a fine-grained GitHub token (Actions: read & write on this repo only).
@@ -39,6 +38,8 @@ SCREEN_W=1072
 CLOCK_PX=83          # FBInk line height that gives digits the same height as the header title
 CLOCK_NUDGE=-3       # line-top offset from the clock box so digits share the title's baseline
 PIDFILE=/tmp/weatherdash.pid
+TOUCH_DEV=/dev/input/event1   # PW3 touchscreen (per KOReader); auto-detected below if possible
+HOME_PAD=24                   # extra pixels around the Home button that still count as a tap
 
 # Locate fbink if it isn't where WinterBreak usually puts it.
 [ -x "$FBINK" ] || FBINK=$(command -v fbink 2>/dev/null)
@@ -66,12 +67,13 @@ cleanup() {
   [ -n "$CLEANED_UP" ] && return
   CLEANED_UP=1
   log "exiting, restoring Kindle UI"
-  pkill -f "dd if=/dev/input/" 2>/dev/null   # stop the input watchers
+  [ -n "$WATCHER_PID" ] && kill "$WATCHER_PID" 2>/dev/null   # stop the Home-button watcher
+  pkill -f "dd if=/dev/input/" 2>/dev/null
   rm -f "$PIDFILE"
   lipc-set-prop com.lab126.powerd preventScreenSaver 0 2>/dev/null
   gui_start
 }
-# Restore the UI on any exit (normal, error, tap-to-exit, power button, Stop tile).
+# Restore the UI on any exit (Home button, USB connected, Stop tile, error).
 trap cleanup EXIT
 trap 'exit 0' TERM INT
 trap '' HUP
@@ -124,46 +126,75 @@ show_screen() {
   draw_clock
 }
 
-# Tap the screen (or press a button) to exit. The paused Kindle UI isn't reading
-# input, so we watch the input devices ourselves: the first event ends the loop.
-find_input_devices() {
-  devs=""
+# Kindle Home button. The paused Kindle UI isn't reading the touchscreen, so we
+# read raw touch events ourselves (16-byte input_event structs on this 32-bit
+# Kindle) and exit only when a tap lands on the button drawn in the footer.
+find_touch_device() {
+  d=""
   if [ -r /proc/bus/input/devices ]; then
-    devs=$(awk '/^N: Name=/ { name = tolower($0) }
-      /^H: Handlers=/ { if (name ~ /touch|cyttsp|zforce|pt_mt|elan|wacom|power|gpio|key/) {
-        sub(/^H: Handlers=/, ""); for (i = 1; i <= NF; i++) if ($i ~ /^event[0-9]+$/) print "/dev/input/" $i } }' \
+    d=$(awk '/^N: Name=/ { name = tolower($0) }
+      /^H: Handlers=/ { if (name ~ /touch|cyttsp|zforce|pt_mt|elan/) { sub(/^H: Handlers=/, "")
+        for (i = 1; i <= NF; i++) if ($i ~ /^event[0-9]+$/) { print "/dev/input/" $i; exit } } }' \
       /proc/bus/input/devices)
   fi
-  [ -n "$devs" ] || devs=$(ls /dev/input/event* 2>/dev/null)
-  echo $devs
+  echo "${d:-$TOUCH_DEV}"
 }
 
-start_exit_watcher() {
-  loop_pid=$$
-  for d in $(find_input_devices); do
-    # Short grace period so the tap that launched the tile can't count.
-    ( sleep 3
-      dd if="$d" of=/dev/null bs=16 count=1 2>/dev/null || exit 0
-      echo "$(date '+%Y-%m-%d %H:%M:%S') input on $d, exiting"
-      pkill -f "com.lab126.powerd goingToScreenSaver" 2>/dev/null   # wake the loop's wait
-      kill -TERM "$loop_pid" 2>/dev/null ) &
+# Home button box published by the renderer: "top left width height".
+load_home_box() {
+  if curl -fsS --max-time 30 -o /tmp/dash-home.txt "$BASE_URL/home.txt?t=$(date +%s)"; then
+    read -r HT HL HW HH < /tmp/dash-home.txt
+  fi
+  HT=${HT:-1324}; HL=${HL:-724}; HW=${HW:-298}; HH=${HH:-78}
+}
+
+home_watcher() {
+  dev=$1; loop_pid=$2
+  if ! command -v od >/dev/null 2>&1; then
+    # Can't decode tap positions: fall back to "any tap exits" rather than trap you.
+    log "od not available; any tap will exit"
+    dd if="$dev" of=/dev/null bs=16 count=1 2>/dev/null && kill -TERM "$loop_pid"
+    return
+  fi
+  x1=$((HL - HOME_PAD)); x2=$((HL + HW + HOME_PAD))
+  y1=$((HT - HOME_PAD)); y2=$((HT + HH + HOME_PAD))
+  x=""; y=""; logged=""; fails=0
+  while :; do
+    # Each od line is one event: offset, sec(lo,hi), usec(lo,hi), type, code, value(lo,hi).
+    events=$(dd if="$dev" bs=1024 count=1 2>/dev/null | od -v -d | awk 'NF >= 9 { printf "%d %d %d %d\n", $6, $7, $8, $2 }')
+    if [ -z "$events" ]; then
+      fails=$((fails + 1))
+      if [ "$fails" -ge 5 ]; then
+        log "can't read touch events from $dev; any tap will exit"
+        dd if="$dev" of=/dev/null bs=16 count=1 2>/dev/null && kill -TERM "$loop_pid"
+        return
+      fi
+      sleep 1; continue
+    fi
+    fails=0
+    while read -r type code val sec; do
+      case "$type:$code" in
+        3:53|3:0) x=$val ;;   # ABS_MT_POSITION_X / ABS_X
+        3:54|3:1) y=$val ;;   # ABS_MT_POSITION_Y / ABS_Y
+        0:0)                  # SYN_REPORT: a complete touch sample
+          [ -n "$x" ] && [ -n "$y" ] || continue
+          if [ "$sec" != "$logged" ]; then log "touch at $x,$y"; logged=$sec; fi
+          if [ "$x" -ge "$x1" ] && [ "$x" -le "$x2" ] && [ "$y" -ge "$y1" ] && [ "$y" -le "$y2" ]; then
+            log "Kindle Home tapped"
+            kill -TERM "$loop_pid"
+            return
+          fi ;;
+      esac
+    done <<EVENTS
+$events
+EVENTS
   done
 }
 
-# Sleep N seconds, exiting early if the power button is pressed.
-# If lipc-wait-event returns too fast (unsupported flag etc.), sleep the rest.
-wait_or_exit() {
+# Sleep N seconds; a TERM (Home button, Stop tile) cuts it short right away.
+wait_a_bit() {
   n=$1; [ "$n" -lt 1 ] && n=1
-  started=$(date +%s)
-  EV=""
-  if command -v lipc-wait-event >/dev/null 2>&1; then
-    EV=$(lipc-wait-event -s "$n" com.lab126.powerd goingToScreenSaver 2>/dev/null)
-  fi
-  case "$EV" in
-    *goingToScreenSaver*) log "power button pressed"; exit 0 ;;
-  esac
-  left=$(( n - ($(date +%s) - started) ))
-  [ "$left" -gt 0 ] && { sleep "$left" & wait $!; }
+  sleep "$n" & wait $!
 }
 
 echo $$ > "$PIDFILE"   # the loop records its own PID so Start/Stop can find it
@@ -177,10 +208,13 @@ sleep 2
 lipc-set-prop com.lab126.powerd preventScreenSaver 1 2>/dev/null
 lipc-set-prop com.lab126.cmd wirelessEnable 1 2>/dev/null
 
-# Record the input devices (for troubleshooting) and start watching them.
+# Record the input devices (for troubleshooting) and watch for Home taps.
 [ -r /proc/bus/input/devices ] && cp -f /proc/bus/input/devices /mnt/us/dashboard/input-devices.txt 2>/dev/null
-log "tap-to-exit watching: $(find_input_devices)"
-start_exit_watcher
+load_home_box
+TOUCH=$(find_touch_device)
+log "Kindle Home button at x=$HL y=$HT (${HW}x$HH); watching $TOUCH"
+home_watcher "$TOUCH" $$ &
+WATCHER_PID=$!
 
 trigger_render
 load_clock_box
@@ -204,10 +238,6 @@ while true; do
   fi
 
   minute=$((minute + 1))
-  if [ "$AUTO_EXIT_MINUTES" -gt 0 ] && [ "$minute" -ge "$AUTO_EXIT_MINUTES" ]; then
-    log "safety timer: exiting after $AUTO_EXIT_MINUTES minutes"
-    exit 0
-  fi
   if [ $((minute % TRIGGER_MINUTES)) -eq 0 ]; then
     lipc-set-prop com.lab126.cmd wirelessEnable 1 2>/dev/null
     trigger_render
@@ -215,5 +245,5 @@ while true; do
   fi
 
   # Wake on the next minute boundary so the clock flips on time.
-  wait_or_exit $((60 - $(date +%S | sed 's/^0//')))
+  wait_a_bit $((60 - $(date +%S | sed 's/^0//')))
 done

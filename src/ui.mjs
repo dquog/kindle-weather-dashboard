@@ -1,7 +1,7 @@
 // Builds the dashboard HTML string from normalized data.
 // Designed for 1072x1448 portrait, pure black/white for e-ink.
 import { weatherIcon, moonIcon } from "./icons.mjs";
-import { frameCss, pageHeader } from "./frame.mjs";
+import { frameCss, pageHeader, pageFooter } from "./frame.mjs";
 
 function fmtTime(iso) {
   const d = new Date(iso);
@@ -29,7 +29,7 @@ export function buildHtml(d, { width, height }) {
   const temps = d.hourly.map((h) => h.temp);
   const tMin = Math.min(...temps), tMax = Math.max(...temps);
   const span = Math.max(1, tMax - tMin);
-  const W = 972, H = 150, padY = 34, padX = 48;
+  const W = 972, H = 128, padY = 36, padX = 48;
   const pts = temps.map((t, i) => {
     const x = padX + (i / (temps.length - 1)) * (W - padX * 2);
     const y = padY + (1 - (t - tMin) / span) * (H - padY * 2);
@@ -70,7 +70,7 @@ export function buildHtml(d, { width, height }) {
 
   .section-title { display:flex; justify-content:space-between; align-items:baseline;
     font-size:30px; font-weight:800; text-transform:uppercase; letter-spacing:2px;
-    padding:26px 0 16px; }
+    padding:20px 0 14px; }
   .section-title .sub { font-size:26px; font-weight:600; text-transform:none; letter-spacing:0; }
 
   .graph { display:flex; justify-content:space-between; align-items:flex-end; height:210px; gap:6px; }
@@ -82,15 +82,13 @@ export function buildHtml(d, { width, height }) {
   .bar-hr { font-size:24px; font-weight:600; margin-top:10px; }
 
   .tiles { display:flex; gap:22px; margin-top:auto; }
-  .tile { flex:1; border:4px solid #000; border-radius:18px; padding:22px 18px; text-align:center;
-    display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:200px; }
+  .tile { flex:1; border:4px solid #000; border-radius:18px; padding:18px 18px; text-align:center;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:176px; }
   .tile .k { font-size:24px; font-weight:800; text-transform:uppercase; letter-spacing:2px; }
   .tile .v { font-size:66px; font-weight:800; line-height:1; margin:8px 0 4px; }
   .tile .s { font-size:26px; font-weight:600; }
   .tile .moonwrap { margin:6px 0; }
 
-  footer { display:flex; justify-content:space-between; font-size:26px; font-weight:600;
-    padding-top:26px; margin-top:26px; }
   </style></head><body><div class="page">
 
     ${pageHeader(d.location, dateStr)}
@@ -144,10 +142,7 @@ export function buildHtml(d, { width, height }) {
       </div>
     </div>
 
-    <footer class="rule-thin" style="border-top:2px solid #000; border-bottom:none;">
-      <div>Updated ${updated}</div>
-      <div>${Math.round(d.moon.illumination * 100)}% moon · AQI PM2.5 ${d.air.pm25 ?? "—"}</div>
-    </footer>
+    ${pageFooter(`Updated ${updated} · PM2.5 ${d.air.pm25 ?? "—"} · Moon ${Math.round(d.moon.illumination * 100)}%`)}
 
   </div></body></html>`;
 }
