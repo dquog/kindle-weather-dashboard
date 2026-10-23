@@ -34,13 +34,17 @@ GitHub Actions                              Kindle (WinterBreak + FBInk)
 | `src/frame.mjs` | shared header (incl. the clock box) |
 | `kindle/weather-dash.sh` | the on-device loop → `/mnt/us/dashboard/` |
 | `kindle/scriptlets/*.sh` | library tiles → `/mnt/us/documents/` |
+| `kindle/touchwatch.lua` | touchscreen grab + Home-tap detection → `/mnt/us/dashboard/` |
 | `kindle/fonts/` | clock font (Noto Sans Bold, OFL) → `/mnt/us/dashboard/fonts/` |
 
 ## Using it on the Kindle
 
-Tap **Weather Dashboard** in the library. The stock Kindle UI pauses and the
-dashboard takes over. **Tap the "Kindle Home" button** (bottom-right) to go back
-to the Kindle home screen; taps anywhere else are ignored and it never times out.
+Tap **Weather Dashboard** in the library. The stock Kindle UI is frozen (as
+KOReader does it: touchscreen grabbed, window manager paused) and the dashboard
+takes over. **Tap the "Kindle Home" button** (bottom-right) to go straight back to
+the library; taps anywhere else are ignored and it never times out. The touch
+grab uses KOReader's LuaJIT and `kindle/touchwatch.lua`; without KOReader it falls
+back to fully stopping the UI, which makes coming back a slow restart.
 Plugging the Kindle into a computer also hands the screen back, and holding the
 power button ~40s to restart always works. A log is written to
 `dashboard/weatherdash.log` (including where each tap landed).

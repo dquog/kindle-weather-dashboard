@@ -15,9 +15,12 @@ PIDFILE=/tmp/weatherdash.pid
 # Replace any previous loop (it may be asleep between refreshes).
 [ -f "$PIDFILE" ] && kill -9 "$(cat "$PIDFILE")" 2>/dev/null
 pkill -9 -f weather-dash.sh 2>/dev/null
-pkill -f "com.lab126.powerd goingToScreenSaver" 2>/dev/null
+pkill -f dash-touchwatch.lua 2>/dev/null   # releases the touchscreen grab
 rm -f "$PIDFILE"
 
+# Undo a frozen UI too (window manager stopped, status bar hidden).
+killall -CONT awesome 2>/dev/null
+lipc-set-prop com.lab126.pillow disableEnablePillow enable 2>/dev/null
 # Make sure the normal Kindle UI is running before we start, so a failed
 # start can never leave the screen blank. The new loop pauses it again.
 if [ -f /etc/upstart/lab126_gui.conf ]; then start lab126_gui >/dev/null 2>&1

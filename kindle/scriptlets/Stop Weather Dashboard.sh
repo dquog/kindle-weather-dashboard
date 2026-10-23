@@ -8,8 +8,11 @@
 PIDFILE=/tmp/weatherdash.pid
 [ -f "$PIDFILE" ] && kill -9 "$(cat "$PIDFILE")" 2>/dev/null
 pkill -9 -f weather-dash.sh 2>/dev/null
-pkill -f "com.lab126.powerd goingToScreenSaver" 2>/dev/null
+pkill -f dash-touchwatch.lua 2>/dev/null   # releases the touchscreen grab
 rm -f "$PIDFILE"
+# Undo a frozen UI too (window manager stopped, status bar hidden).
+killall -CONT awesome 2>/dev/null
+lipc-set-prop com.lab126.pillow disableEnablePillow enable 2>/dev/null
 lipc-set-prop com.lab126.powerd preventScreenSaver 0 2>/dev/null
 if [ -f /etc/upstart/lab126_gui.conf ]; then start lab126_gui >/dev/null 2>&1
 else /etc/init.d/framework start >/dev/null 2>&1; fi

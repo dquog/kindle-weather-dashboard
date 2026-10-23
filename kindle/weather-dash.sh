@@ -8,7 +8,7 @@
 # Started/stopped by the "Weather Dashboard" / "Stop Weather Dashboard"
 # library tiles (scriptlets in /mnt/us/documents).
 #
-# While running, the stock Kindle UI is paused so it can't draw over the
+# While running, the stock Kindle UI is frozen so it can't draw over the
 # dashboard. To exit: tap the Kindle Home button in the bottom-right corner.
 # ---------------------------------------------------------------------------
 
@@ -40,6 +40,9 @@ CLOCK_NUDGE=-3       # line-top offset from the clock box so digits share the ti
 PIDFILE=/tmp/weatherdash.pid
 TOUCH_DEV=/dev/input/event1   # PW3 touchscreen (per KOReader); auto-detected below if possible
 HOME_PAD=24                   # extra pixels around the Home button that still count as a tap
+LUAJIT=/mnt/us/koreader/luajit                # KOReader's LuaJIT, used to grab the touchscreen
+TOUCHWATCH=/mnt/us/dashboard/touchwatch.lua
+FB_DUMP=/var/tmp/dash-fb.dump                 # the Kindle screen we return to on exit
 
 # Locate fbink if it isn't where WinterBreak usually puts it.
 [ -x "$FBINK" ] || FBINK=$(command -v fbink 2>/dev/null)
@@ -50,10 +53,38 @@ fi
 [ -f "$FONT" ] || FONT=/mnt/us/koreader/fonts/noto/NotoSans-Bold.ttf
 cp -f "$FBINK" /var/tmp/dash-fbink && chmod +x /var/tmp/dash-fbink && FBINK=/var/tmp/dash-fbink
 cp -f "$FONT" /var/tmp/dash-font.ttf && FONT=/var/tmp/dash-font.ttf
+[ -x "$LUAJIT" ] && cp -f "$LUAJIT" /var/tmp/dash-luajit && chmod +x /var/tmp/dash-luajit && LUAJIT=/var/tmp/dash-luajit
+[ -f "$TOUCHWATCH" ] && cp -f "$TOUCHWATCH" /var/tmp/dash-touchwatch.lua && TOUCHWATCH=/var/tmp/dash-touchwatch.lua
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*"; }
 
-# Pause / resume the stock Kindle UI (same approach KOReader uses).
+# Two ways to keep the stock Kindle UI from drawing over the dashboard:
+#  freeze (preferred): like KOReader, grab the touchscreen, hide the status bar and
+#    SIGSTOP the window manager. Resuming is instant and returns to the same screen.
+#  stop (fallback): stop the whole UI job. Safe, but coming back is a slow restart.
+# Freeze is only used when the touchscreen grab works, so taps can't reach the
+# hidden UI underneath.
+pause_ui() {
+  if [ "$UI_MODE" = freeze ]; then
+    cat /dev/fb0 > "$FB_DUMP" 2>/dev/null
+    lipc-set-prop com.lab126.pillow disableEnablePillow disable 2>/dev/null
+    killall -STOP awesome 2>/dev/null
+  else
+    gui_stop
+  fi
+}
+resume_ui() {
+  if [ "$UI_MODE" = freeze ]; then
+    killall -CONT awesome 2>/dev/null
+    [ -s "$FB_DUMP" ] && cat "$FB_DUMP" > /dev/fb0 2>/dev/null
+    rm -f "$FB_DUMP"
+    lipc-set-prop com.lab126.pillow disableEnablePillow enable 2>/dev/null
+    "$FBINK" -q -s -f 2>/dev/null   # flash-refresh so the restored screen is crisp
+  else
+    gui_start
+  fi
+}
+
 gui_stop() {
   if [ -f /etc/upstart/lab126_gui.conf ]; then stop lab126_gui >/dev/null 2>&1
   else /etc/init.d/framework stop >/dev/null 2>&1; fi
@@ -67,11 +98,13 @@ cleanup() {
   [ -n "$CLEANED_UP" ] && return
   CLEANED_UP=1
   log "exiting, restoring Kindle UI"
-  [ -n "$WATCHER_PID" ] && kill "$WATCHER_PID" 2>/dev/null   # stop the Home-button watcher
+  # Stop the Home-button watcher first: that releases the touchscreen grab.
+  pkill -f dash-touchwatch.lua 2>/dev/null
+  [ -n "$WATCHER_PID" ] && kill "$WATCHER_PID" 2>/dev/null
   pkill -f "dd if=/dev/input/" 2>/dev/null
   rm -f "$PIDFILE"
   lipc-set-prop com.lab126.powerd preventScreenSaver 0 2>/dev/null
-  gui_start
+  resume_ui
 }
 # Restore the UI on any exit (Home button, USB connected, Stop tile, error).
 trap cleanup EXIT
@@ -148,6 +181,22 @@ load_home_box() {
   HT=${HT:-1324}; HL=${HL:-724}; HW=${HW:-298}; HH=${HH:-78}
 }
 
+# Freeze mode: the LuaJIT helper grabs the touchscreen and reports taps.
+lua_home_watcher() {
+  dev=$1; loop_pid=$2
+  "$LUAJIT" "$TOUCHWATCH" "$dev" $((HL - HOME_PAD)) $((HT - HOME_PAD)) \
+      $((HL + HW + HOME_PAD)) $((HT + HH + HOME_PAD)) 2>&1 |
+  while read -r kind tx ty; do
+    case "$kind" in
+      TOUCH) log "touch at $tx,$ty" ;;
+      HOME)  log "Kindle Home tapped"; kill -TERM "$loop_pid"; break ;;
+      *)     # The grab is gone, so taps could reach the hidden UI: leave safely.
+             log "touch helper stopped ($kind $tx $ty); exiting"; kill -TERM "$loop_pid"; break ;;
+    esac
+  done
+}
+
+# Stop mode: decode raw touch events in the shell (no grab needed; the UI is stopped).
 home_watcher() {
   dev=$1; loop_pid=$2
   if ! command -v od >/dev/null 2>&1; then
@@ -200,21 +249,32 @@ wait_a_bit() {
 echo $$ > "$PIDFILE"   # the loop records its own PID so Start/Stop can find it
 log "loop started (pid $$)"
 
-# Let the library finish redrawing after the tile closes, then take over the screen.
+# Record the input devices (for troubleshooting) and pick how to pause the UI.
+[ -r /proc/bus/input/devices ] && cp -f /proc/bus/input/devices /mnt/us/dashboard/input-devices.txt 2>/dev/null
+TOUCH=$(find_touch_device)
+UI_MODE=stop
+if [ -x "$LUAJIT" ] && [ -f "$TOUCHWATCH" ] && pidof awesome >/dev/null 2>&1; then
+  check=$("$LUAJIT" "$TOUCHWATCH" "$TOUCH" --check 2>&1) && UI_MODE=freeze || log "touch grab unavailable: $check"
+fi
+log "UI mode: $UI_MODE"
+
+# Let the library finish redrawing after the tile closes.
 sleep 4
-gui_stop
-log "stock UI paused"
-sleep 2
+load_home_box
+log "Kindle Home button at x=$HL y=$HT (${HW}x$HH); watching $TOUCH"
+# Start watching for Home taps before pausing, so the grab is in place first.
+if [ "$UI_MODE" = freeze ]; then
+  lua_home_watcher "$TOUCH" $$ &
+  sleep 1
+else
+  home_watcher "$TOUCH" $$ &
+fi
+WATCHER_PID=$!
+pause_ui
+log "stock UI paused ($UI_MODE)"
+sleep 1
 lipc-set-prop com.lab126.powerd preventScreenSaver 1 2>/dev/null
 lipc-set-prop com.lab126.cmd wirelessEnable 1 2>/dev/null
-
-# Record the input devices (for troubleshooting) and watch for Home taps.
-[ -r /proc/bus/input/devices ] && cp -f /proc/bus/input/devices /mnt/us/dashboard/input-devices.txt 2>/dev/null
-load_home_box
-TOUCH=$(find_touch_device)
-log "Kindle Home button at x=$HL y=$HT (${HW}x$HH); watching $TOUCH"
-home_watcher "$TOUCH" $$ &
-WATCHER_PID=$!
 
 trigger_render
 load_clock_box
