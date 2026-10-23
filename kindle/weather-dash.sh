@@ -125,11 +125,17 @@ userstore_ok() {
 trigger_render() {
   [ -s "$TOKEN_FILE" ] || return 0
   token=$(tr -d ' \r\n' < "$TOKEN_FILE")
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 -X POST \
+  code=$(curl -s -o /tmp/dash-gh-reply.json -w '%{http_code}' --max-time 30 -X POST \
     -H "Authorization: Bearer $token" -H "Accept: application/vnd.github+json" \
     "https://api.github.com/repos/$REPO/actions/workflows/$WORKFLOW/dispatches" \
     -d '{"ref":"main"}')
-  log "asked GitHub for a fresh render (HTTP $code)"
+  if [ "$code" = 204 ]; then
+    log "asked GitHub for a fresh render (HTTP 204, accepted)"
+  else
+    # GitHub's reply says why (e.g. missing permission); it never contains the token.
+    why=$(sed -n 's/.*"message": *"\([^"]*\)".*/\1/p' /tmp/dash-gh-reply.json 2>/dev/null | head -1)
+    log "GitHub refused the render request (HTTP $code: ${why:-no message})"
+  fi
 }
 
 # Clock box published by the renderer: "top left width height".
