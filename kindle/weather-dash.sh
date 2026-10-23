@@ -8,8 +8,8 @@
 # Stop it with Ctrl-C (in kterm) or by killing the process.
 # ---------------------------------------------------------------------------
 
-# >>> EDIT THIS: your GitHub Pages URL (see README step 4) <<<
-URL="https://YOURUSER.github.io/kindle-weather-dashboard/dashboard.png"
+# Your GitHub Pages dashboard URL
+URL="https://dquog.github.io/kindle-weather-dashboard/dashboard.png"
 
 INTERVAL=1800        # seconds between refreshes (1800 = 30 min). Lower = fresher, more battery.
 FULL_EVERY=4         # flashing full-screen refresh every Nth update (clears e-ink ghosting)
