@@ -4,8 +4,8 @@
 # Fetches the PNG rendered by GitHub Actions and shows it full-screen via FBInk.
 # Runs on a jailbroken Kindle Paperwhite 7th gen (1072x1448). Best plugged in.
 #
-# Run it from kterm (or KUAL) with:   sh /mnt/us/dashboard/weather-dash.sh
-# Stop it with Ctrl-C (in kterm) or by killing the process.
+# Started/stopped by the "Weather Dashboard" / "Stop Weather Dashboard"
+# library tiles (scriptlets in /mnt/us/documents).
 # ---------------------------------------------------------------------------
 
 # Your GitHub Pages dashboard URL
@@ -15,6 +15,7 @@ INTERVAL=1800        # seconds between refreshes (1800 = 30 min). Lower = freshe
 FULL_EVERY=4         # flashing full-screen refresh every Nth update (clears e-ink ghosting)
 FBINK=/mnt/us/libkh/bin/fbink
 TMP=/tmp/kindle-dash.png
+PIDFILE=/tmp/weatherdash.pid
 
 # Locate fbink if it isn't where WinterBreak usually puts it.
 [ -x "$FBINK" ] || FBINK=$(command -v fbink 2>/dev/null)
@@ -25,6 +26,8 @@ fi
 
 echo "Weather dashboard starting. URL: $URL"
 echo "Refresh every ${INTERVAL}s, full refresh every ${FULL_EVERY}th update. Ctrl-C to stop."
+
+echo $$ > "$PIDFILE"   # the loop records its own PID so Start/Stop can find it
 
 count=0
 "$FBINK" -c -f >/dev/null 2>&1   # start with one clean flashing clear

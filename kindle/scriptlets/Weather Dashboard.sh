@@ -4,15 +4,22 @@
 # Icon: /mnt/us/dashboard/icon.png
 # DontUseFBInk
 
-# Starts the e-ink weather dashboard in the background.
-# To exit, tap "Stop Weather Dashboard" in your library.
+# Tap to show the weather dashboard. Every tap restarts it, so it always
+# redraws immediately. To exit, tap "Stop Weather Dashboard".
+LOG=/mnt/us/dashboard/weatherdash.log
 PIDFILE=/tmp/weatherdash.pid
-if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-  exit 0   # already running
-fi
+
+# Keep the log small (reset past ~100 KB).
+[ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 100000 ] && : > "$LOG"
+
+# Stop any previous loop (it may be asleep between refreshes).
+[ -f "$PIDFILE" ] && kill "$(cat "$PIDFILE")" 2>/dev/null
+pkill -f /mnt/us/dashboard/weather-dash.sh 2>/dev/null
+rm -f "$PIDFILE"
+
+echo "$(date '+%Y-%m-%d %H:%M:%S') tile tapped, starting loop" >> "$LOG"
 if command -v setsid >/dev/null 2>&1; then
-  setsid /bin/sh /mnt/us/dashboard/weather-dash.sh > /tmp/weatherdash.log 2>&1 < /dev/null &
+  setsid /bin/sh /mnt/us/dashboard/weather-dash.sh >> "$LOG" 2>&1 < /dev/null &
 else
-  nohup /bin/sh /mnt/us/dashboard/weather-dash.sh > /tmp/weatherdash.log 2>&1 < /dev/null &
+  nohup /bin/sh /mnt/us/dashboard/weather-dash.sh >> "$LOG" 2>&1 < /dev/null &
 fi
-echo $! > "$PIDFILE"
