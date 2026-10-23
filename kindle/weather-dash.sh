@@ -9,7 +9,7 @@
 # library tiles (scriptlets in /mnt/us/documents).
 #
 # While running, the stock Kindle UI is paused so it can't draw over the
-# dashboard. To exit: press the power button (or hold it ~15s to restart).
+# dashboard. To exit: tap the screen (or press any button).
 # ---------------------------------------------------------------------------
 
 # Run from a copy in /var/tmp (RAM). Plugging in USB unmounts /mnt/us; a script
@@ -65,11 +65,12 @@ cleanup() {
   [ -n "$CLEANED_UP" ] && return
   CLEANED_UP=1
   log "exiting, restoring Kindle UI"
+  pkill -f "dd if=/dev/input/" 2>/dev/null   # stop the input watchers
   rm -f "$PIDFILE"
   lipc-set-prop com.lab126.powerd preventScreenSaver 0 2>/dev/null
   gui_start
 }
-# Restore the UI on any exit (normal, error, power button, Stop tile's TERM).
+# Restore the UI on any exit (normal, error, tap-to-exit, power button, Stop tile).
 trap cleanup EXIT
 trap 'exit 0' TERM INT
 trap '' HUP
@@ -119,6 +120,32 @@ show_screen() {
   draw_clock
 }
 
+# Tap the screen (or press a button) to exit. The paused Kindle UI isn't reading
+# input, so we watch the input devices ourselves: the first event ends the loop.
+find_input_devices() {
+  devs=""
+  if [ -r /proc/bus/input/devices ]; then
+    devs=$(awk '/^N: Name=/ { name = tolower($0) }
+      /^H: Handlers=/ { if (name ~ /touch|cyttsp|zforce|pt_mt|elan|wacom|power|gpio|key/) {
+        sub(/^H: Handlers=/, ""); for (i = 1; i <= NF; i++) if ($i ~ /^event[0-9]+$/) print "/dev/input/" $i } }' \
+      /proc/bus/input/devices)
+  fi
+  [ -n "$devs" ] || devs=$(ls /dev/input/event* 2>/dev/null)
+  echo $devs
+}
+
+start_exit_watcher() {
+  loop_pid=$$
+  for d in $(find_input_devices); do
+    # Short grace period so the tap that launched the tile can't count.
+    ( sleep 3
+      dd if="$d" of=/dev/null bs=16 count=1 2>/dev/null || exit 0
+      echo "$(date '+%Y-%m-%d %H:%M:%S') input on $d, exiting"
+      pkill -f "com.lab126.powerd goingToScreenSaver" 2>/dev/null   # wake the loop's wait
+      kill -TERM "$loop_pid" 2>/dev/null ) &
+  done
+}
+
 # Sleep N seconds, exiting early if the power button is pressed.
 # If lipc-wait-event returns too fast (unsupported flag etc.), sleep the rest.
 wait_or_exit() {
@@ -145,6 +172,11 @@ log "stock UI paused"
 sleep 2
 lipc-set-prop com.lab126.powerd preventScreenSaver 1 2>/dev/null
 lipc-set-prop com.lab126.cmd wirelessEnable 1 2>/dev/null
+
+# Record the input devices (for troubleshooting) and start watching them.
+[ -r /proc/bus/input/devices ] && cp -f /proc/bus/input/devices /mnt/us/dashboard/input-devices.txt 2>/dev/null
+log "tap-to-exit watching: $(find_input_devices)"
+start_exit_watcher
 
 trigger_render
 load_clock_box

@@ -5,7 +5,7 @@
 # DontUseFBInk
 
 # Tap to show the dashboard full-screen. Every tap restarts it.
-# To exit: press the power button (or tap "Stop Weather Dashboard").
+# To exit: tap the screen (or press any button).
 LOG=/mnt/us/dashboard/weatherdash.log
 PIDFILE=/tmp/weatherdash.pid
 
