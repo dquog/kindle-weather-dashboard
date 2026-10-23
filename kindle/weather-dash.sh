@@ -12,6 +12,12 @@
 # dashboard. To exit: press the power button (or hold it ~15s to restart).
 # ---------------------------------------------------------------------------
 
+# Run from a copy in /var/tmp (RAM). Plugging in USB unmounts /mnt/us; a script
+# running from there gets cut off mid-run and could leave the Kindle UI paused.
+if [ "$0" != /var/tmp/weather-dash.sh ]; then
+  cp -f "$0" /var/tmp/weather-dash.sh && exec /bin/sh /var/tmp/weather-dash.sh "$@"
+fi
+
 # Where the rendered screens live (GitHub Pages).
 BASE_URL="https://dquog.github.io/kindle-weather-dashboard"
 SCREENS="dashboard tfl"   # PNG names, shown in this order
@@ -40,6 +46,8 @@ if [ -z "$FBINK" ] || [ ! -x "$FBINK" ]; then
   exit 1
 fi
 [ -f "$FONT" ] || FONT=/mnt/us/koreader/fonts/noto/NotoSans-Bold.ttf
+cp -f "$FBINK" /var/tmp/dash-fbink && chmod +x /var/tmp/dash-fbink && FBINK=/var/tmp/dash-fbink
+cp -f "$FONT" /var/tmp/dash-font.ttf && FONT=/var/tmp/dash-font.ttf
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*"; }
 
@@ -54,14 +62,24 @@ gui_start() {
 }
 
 cleanup() {
+  [ -n "$CLEANED_UP" ] && return
+  CLEANED_UP=1
   log "exiting, restoring Kindle UI"
   rm -f "$PIDFILE"
   lipc-set-prop com.lab126.powerd preventScreenSaver 0 2>/dev/null
   gui_start
-  exit 0
 }
-trap cleanup TERM INT
+# Restore the UI on any exit (normal, error, power button, Stop tile's TERM).
+trap cleanup EXIT
+trap 'exit 0' TERM INT
 trap '' HUP
+
+# True while the Kindle's USB storage (/mnt/us) is mounted on the Kindle itself.
+# When a computer connects in USB-drive mode it gets unmounted; then we hand back.
+userstore_ok() {
+  [ -r /proc/mounts ] || return 0
+  grep -q ' /mnt/us ' /proc/mounts
+}
 
 # Ask GitHub Actions to re-render now (no-op without a token file).
 trigger_render() {
@@ -111,7 +129,7 @@ wait_or_exit() {
     EV=$(lipc-wait-event -s "$n" com.lab126.powerd goingToScreenSaver 2>/dev/null)
   fi
   case "$EV" in
-    *goingToScreenSaver*) log "power button pressed"; cleanup ;;
+    *goingToScreenSaver*) log "power button pressed"; exit 0 ;;
   esac
   left=$(( n - ($(date +%s) - started) ))
   [ "$left" -gt 0 ] && { sleep "$left" & wait $!; }
@@ -134,6 +152,11 @@ set -- $SCREENS
 count=$#; idx=0; changes=0; minute=0
 
 while true; do
+  if ! userstore_ok; then
+    log "USB storage connected; handing the screen back"
+    exit 0
+  fi
+
   # Every SCREEN_MINUTES (and on the first pass): switch to the next screen.
   if [ $((minute % SCREEN_MINUTES)) -eq 0 ]; then
     eval "name=\${$((idx + 1))}"
