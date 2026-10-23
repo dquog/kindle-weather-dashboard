@@ -2,8 +2,8 @@ name: Update dashboard
 
 on:
   schedule:
-    - cron: "*/30 * * * *"   # every 30 minutes (UTC). GitHub may delay/skip under load.
-  workflow_dispatch:          # lets you run it on demand from the Actions tab
+    - cron: "7,37 * * * *"   # backup timer, off the busy top of the hour. GitHub often delays/skips it.
+  workflow_dispatch:          # run on demand: Actions tab, or the Kindle itself (see README)
   push:
     branches: [main]
 
@@ -29,6 +29,8 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: node src/render.mjs
+        env:
+          TZ: Europe/London   # so the date and "Updated" time are UK local time, not UTC
       - uses: actions/upload-pages-artifact@v3
         with:
           path: public

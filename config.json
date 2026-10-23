@@ -14,5 +14,9 @@
     "width": 1072,
     "height": 1448,
     "note": "Kindle Paperwhite 7th gen (PW3) = 1072x1448. Change for other models: PW5/Signature=1236x1648, Scribe=1860x2480."
+  },
+  "tfl": {
+    "featured": "northern",
+    "modes": "tube,elizabeth-line,overground,dlr"
   }
 }

@@ -1,6 +1,7 @@
 // Builds the dashboard HTML string from normalized data.
 // Designed for 1072x1448 portrait, pure black/white for e-ink.
 import { weatherIcon, moonIcon } from "./icons.mjs";
+import { frameCss, pageHeader } from "./frame.mjs";
 
 function fmtTime(iso) {
   const d = new Date(iso);
@@ -57,18 +58,7 @@ export function buildHtml(d, { width, height }) {
   });
 
   return `<!doctype html><html><head><meta charset="utf-8"><style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  html,body { width:${width}px; height:${height}px; background:#fff; color:#000;
-    font-family: "Helvetica Neue", Arial, "Liberation Sans", sans-serif;
-    -webkit-font-smoothing: none; }
-  .page { width:${width}px; height:${height}px; padding:46px 50px; display:flex; flex-direction:column; }
-  .rule { border-bottom:4px solid #000; }
-  .rule-thin { border-bottom:2px solid #000; }
-
-  header { display:flex; justify-content:space-between; align-items:baseline; padding-bottom:18px; }
-  header .loc { font-size:62px; font-weight:800; letter-spacing:-1px; }
-  header .date { font-size:30px; font-weight:600; }
-
+  ${frameCss(width, height)}
   .hero { display:flex; align-items:center; justify-content:space-between; padding:34px 0 20px; }
   .hero .temp { font-size:230px; font-weight:800; line-height:0.86; letter-spacing:-6px; }
   .hero .temp sup { font-size:80px; font-weight:700; vertical-align:top; }
@@ -103,10 +93,7 @@ export function buildHtml(d, { width, height }) {
     padding-top:26px; margin-top:26px; }
   </style></head><body><div class="page">
 
-    <header class="rule">
-      <div class="loc">${d.location}</div>
-      <div class="date">${dateStr}</div>
-    </header>
+    ${pageHeader(d.location, dateStr)}
 
     <div class="hero">
       <div>
