@@ -1,7 +1,7 @@
 // Builds the dashboard HTML string from normalized data.
 // Designed for 1072x1448 portrait, pure black/white for e-ink.
 import { weatherIcon, moonIcon } from "./icons.mjs";
-import { frameCss, pageHeader, pageFooter } from "./frame.mjs";
+import { frameCss, pageHeader, pageFooter, updatedStamp } from "./frame.mjs";
 
 function fmtTime(iso) {
   const d = new Date(iso);
@@ -53,9 +53,7 @@ export function buildHtml(d, { width, height }) {
   const dateStr = d.generatedAt.toLocaleDateString("en-GB", {
     weekday: "long", day: "numeric", month: "long",
   });
-  const updated = d.generatedAt.toLocaleTimeString("en-GB", {
-    hour: "2-digit", minute: "2-digit",
-  });
+  const updated = updatedStamp(d.generatedAt);
 
   return `<!doctype html><html><head><meta charset="utf-8"><style>
   ${frameCss(width, height)}
@@ -142,7 +140,7 @@ export function buildHtml(d, { width, height }) {
       </div>
     </div>
 
-    ${pageFooter(`Updated ${updated} · PM2.5 ${d.air.pm25 ?? "—"}`, "TfL status")}
+    ${pageFooter(updated, "TfL status")}
 
   </div></body></html>`;
 }

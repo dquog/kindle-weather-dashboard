@@ -1,5 +1,5 @@
 // Builds the TfL status screen. Same frame/header as the weather screen.
-import { frameCss, pageHeader, pageFooter } from "./frame.mjs";
+import { frameCss, pageHeader, pageFooter, updatedStamp } from "./frame.mjs";
 
 // Official TfL line colours; they turn into distinct greys on the e-ink screen.
 const COLOURS = {
@@ -15,7 +15,7 @@ const lineName = (l) => (l.mode === "tube" ? `${l.name} line` : l.name);
 
 export function buildTflHtml(t, { width, height }) {
   const dateStr = t.generatedAt.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
-  const updated = t.generatedAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  const updated = updatedStamp(t.generatedAt);
 
   let body;
   if (t.error) {
@@ -82,6 +82,6 @@ export function buildTflHtml(t, { width, height }) {
   </style></head><body><div class="page">
     ${pageHeader("TfL Status", dateStr)}
     ${body}
-    ${pageFooter(`Updated ${updated} · Live from TfL`, "Weather")}
+    ${pageFooter(updated, "Weather")}
   </div></body></html>`;
 }

@@ -29,6 +29,7 @@ SCREENS="dashboard tfl"   # PNG names, shown in this order
 SCREEN_MINUTES=2     # how long each screen stays up before switching
 TRIGGER_MINUTES=15   # ask GitHub for a fresh render this often (needs the token file)
 FULL_EVERY=6         # flashing full-screen refresh every Nth screen change (clears ghosting)
+CACHE_MAX_AGE=300    # seconds a downloaded screen counts as fresh for an instant page turn
 
 # Optional: a fine-grained GitHub token (Actions: read & write on this repo only).
 # With it, the Kindle triggers renders itself instead of waiting on GitHub's timer.
@@ -159,14 +160,28 @@ draw_clock() {
 }
 
 # Fetch a screen (falling back to the last good copy) and draw it.
-# A tapped page turn ($3 = tapped) reuses the copy we already have so it's instant.
+# Download screen $1 to /tmp/dash-NAME.png via temp file $2 (fg or bg, so a
+# foreground fetch and a background prefetch never write the same file), so a
+# half-written image is never shown.
+fetch_screen() {
+  curl -fsSL --max-time 60 -o "/tmp/dash-$1.png.$2" "$BASE_URL/$1.png?t=$(date +%s)" &&
+    mv -f "/tmp/dash-$1.png.$2" "/tmp/dash-$1.png"
+}
+
+# True if our copy of a screen was downloaded within CACHE_MAX_AGE seconds.
+fresh_copy() {
+  [ -s "$1" ] || return 1
+  t=$(date -r "$1" +%s 2>/dev/null) || return 1
+  [ $(( $(date +%s) - t )) -lt "$CACHE_MAX_AGE" ]
+}
+
+# A tapped page turn ($3 = tapped) uses our copy if it's fresh, so it's instant;
+# otherwise (and on timed switches) it downloads the screen first.
 show_screen() {
   name=$1; flash=$2; img=/tmp/dash-$name.png
-  if [ "$3" = tapped ] && [ -s "$img" ]; then
+  if [ "$3" = tapped ] && fresh_copy "$img"; then
     :
-  elif curl -fsSL --max-time 60 -o "$img.new" "$BASE_URL/$name.png?t=$(date +%s)"; then
-    mv -f "$img.new" "$img"
-  else
+  elif ! fetch_screen "$name" fg; then
     log "fetch of $name failed; showing last copy"
   fi
   [ -s "$img" ] || return 1
@@ -305,6 +320,8 @@ lipc-set-prop com.lab126.cmd wirelessEnable 1 2>/dev/null
 
 trigger_render
 load_clock_box
+# Copies from an earlier run may be hours old: never show those.
+rm -f /tmp/dash-*.png /tmp/dash-*.png.*
 count=$(echo $SCREENS | wc -w); idx=0; changes=0; minute=0; on_screen=0
 screen_at() { i=0; for sc in $SCREENS; do [ "$i" -eq "$1" ] && { echo "$sc"; return; }; i=$((i + 1)); done; }
 
@@ -314,6 +331,8 @@ next_screen() {
   flash=0; [ $((changes % FULL_EVERY)) -eq 0 ] && flash=1
   show_screen "$name" "$flash" "$1" && log "showing $name${1:+ ($1)}"
   idx=$(( (idx + 1) % count )); changes=$((changes + 1)); on_screen=0
+  # Fetch the screen that comes next now, so a tap on the next-page button is instant.
+  fetch_screen "$(screen_at "$idx")" bg 2>/dev/null &
 }
 
 next_screen

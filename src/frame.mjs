@@ -44,6 +44,13 @@ const HOUSE = `<svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www
   <path d="M10 17 V34 H30 V17" fill="none" stroke="#fff" stroke-width="4.5" stroke-linejoin="round"/>
   <rect x="17" y="24" width="6" height="10" fill="#fff"/></svg>`;
 
+// "Updated Sun 25 Oct, 20:52": day and date too, so a stale screen is obvious.
+export function updatedStamp(date) {
+  return "Updated " + date.toLocaleString("en-GB", {
+    weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
+  });
+}
+
 export function pageFooter(leftText, nextLabel) {
   return `<footer class="frame-footer">
       <div>${leftText}</div>
