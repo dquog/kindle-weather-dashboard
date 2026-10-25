@@ -18,6 +18,10 @@ if [ "$0" != /var/tmp/weather-dash.sh ]; then
   cp -f "$0" /var/tmp/weather-dash.sh && exec /bin/sh /var/tmp/weather-dash.sh "$@"
 fi
 
+# UK time with summer time built in. The Kindle's own setting can lag behind a
+# clock change, so the dashboard keeps its own.
+export TZ="GMT0BST,M3.5.0/1,M10.5.0"
+
 # Where the rendered screens live (GitHub Pages).
 BASE_URL="https://dquog.github.io/kindle-weather-dashboard"
 SCREENS="dashboard tfl"   # PNG names, shown in this order
@@ -39,7 +43,8 @@ CLOCK_PX=83          # FBInk line height that gives digits the same height as th
 CLOCK_NUDGE=-3       # line-top offset from the clock box so digits share the title's baseline
 PIDFILE=/tmp/weatherdash.pid
 TOUCH_DEV=/dev/input/event1   # PW3 touchscreen (per KOReader); auto-detected below if possible
-HOME_PAD=24                   # extra pixels around the Home button that still count as a tap
+BUTTON_PAD_X=6                # extra pixels around footer buttons that still count as a tap
+BUTTON_PAD_Y=24               #   (small sideways: the two buttons are only 16px apart)
 LUAJIT=/mnt/us/koreader/luajit                # KOReader's LuaJIT, used to grab the touchscreen
 TOUCHWATCH=/mnt/us/dashboard/touchwatch.lua
 FB_DUMP=/var/tmp/dash-fb.dump                 # the Kindle screen we return to on exit
@@ -109,6 +114,8 @@ cleanup() {
 # Restore the UI on any exit (Home button, USB connected, Stop tile, error).
 trap cleanup EXIT
 trap 'exit 0' TERM INT
+NEXT_REQ=0
+trap 'NEXT_REQ=1' USR1   # sent by the touch watcher when the next-page button is tapped
 trap '' HUP
 
 # True while the Kindle's USB storage (/mnt/us) is mounted on the Kindle itself.
@@ -152,9 +159,12 @@ draw_clock() {
 }
 
 # Fetch a screen (falling back to the last good copy) and draw it.
+# A tapped page turn ($3 = tapped) reuses the copy we already have so it's instant.
 show_screen() {
   name=$1; flash=$2; img=/tmp/dash-$name.png
-  if curl -fsSL --max-time 60 -o "$img.new" "$BASE_URL/$name.png?t=$(date +%s)"; then
+  if [ "$3" = tapped ] && [ -s "$img" ]; then
+    :
+  elif curl -fsSL --max-time 60 -o "$img.new" "$BASE_URL/$name.png?t=$(date +%s)"; then
     mv -f "$img.new" "$img"
   else
     log "fetch of $name failed; showing last copy"
@@ -179,23 +189,29 @@ find_touch_device() {
   echo "${d:-$TOUCH_DEV}"
 }
 
-# Home button box published by the renderer: "top left width height".
-load_home_box() {
-  if curl -fsS --max-time 30 -o /tmp/dash-home.txt "$BASE_URL/home.txt?t=$(date +%s)"; then
-    read -r HT HL HW HH < /tmp/dash-home.txt
-  fi
+# Footer button boxes published by the renderer: "top left width height".
+load_buttons() {
+  for b in home next; do
+    curl -fsS --max-time 30 -o "/tmp/dash-$b.txt" "$BASE_URL/$b.txt?t=$(date +%s)" || rm -f "/tmp/dash-$b.txt"
+  done
+  [ -s /tmp/dash-home.txt ] && read -r HT HL HW HH < /tmp/dash-home.txt
+  [ -s /tmp/dash-next.txt ] && read -r NT NL NW NH < /tmp/dash-next.txt
   HT=${HT:-1324}; HL=${HL:-724}; HW=${HW:-298}; HH=${HH:-78}
+  NT=${NT:-1324}; NL=${NL:-472}; NW=${NW:-236}; NH=${NH:-78}
 }
+
+# "x1 y1 x2 y2" of a button box, padded for finger slop.
+padded() { echo "$(($2 - BUTTON_PAD_X)) $(($1 - BUTTON_PAD_Y)) $(($2 + $3 + BUTTON_PAD_X)) $(($1 + $4 + BUTTON_PAD_Y))"; }
 
 # Freeze mode: the LuaJIT helper grabs the touchscreen and reports taps.
 lua_home_watcher() {
   dev=$1; loop_pid=$2
-  "$LUAJIT" "$TOUCHWATCH" "$dev" $((HL - HOME_PAD)) $((HT - HOME_PAD)) \
-      $((HL + HW + HOME_PAD)) $((HT + HH + HOME_PAD)) 2>&1 |
-  while read -r kind tx ty; do
-    case "$kind" in
-      TOUCH) log "touch at $tx,$ty" ;;
-      HOME)  log "Kindle Home tapped"; kill -TERM "$loop_pid"; break ;;
+  "$LUAJIT" "$TOUCHWATCH" "$dev" home $(padded $HT $HL $HW $HH) next $(padded $NT $NL $NW $NH) 2>&1 |
+  while read -r kind arg1 arg2 arg3; do
+    case "$kind $arg1" in
+      TOUCH*)     log "touch at $arg1,$arg2" ;;
+      "HIT home") log "Kindle Home tapped"; kill -TERM "$loop_pid"; break ;;
+      "HIT next") log "next page tapped"; kill -USR1 "$loop_pid" ;;
       *)     # The grab is gone, so taps could reach the hidden UI: leave safely.
              log "touch helper stopped ($kind $tx $ty); exiting"; kill -TERM "$loop_pid"; break ;;
     esac
@@ -211,9 +227,9 @@ home_watcher() {
     dd if="$dev" of=/dev/null bs=16 count=1 2>/dev/null && kill -TERM "$loop_pid"
     return
   fi
-  x1=$((HL - HOME_PAD)); x2=$((HL + HW + HOME_PAD))
-  y1=$((HT - HOME_PAD)); y2=$((HT + HH + HOME_PAD))
-  x=""; y=""; logged=""; fails=0
+  set -- $(padded $HT $HL $HW $HH); x1=$1; y1=$2; x2=$3; y2=$4
+  set -- $(padded $NT $NL $NW $NH); nx1=$1; ny1=$2; nx2=$3; ny2=$4
+  x=""; y=""; logged=""; last_next=""; fails=0
   while :; do
     # Each od line is one event: offset, sec(lo,hi), usec(lo,hi), type, code, value(lo,hi).
     events=$(dd if="$dev" bs=1024 count=1 2>/dev/null | od -v -d | awk 'NF >= 9 { printf "%d %d %d %d\n", $6, $7, $8, $2 }')
@@ -238,6 +254,11 @@ home_watcher() {
             log "Kindle Home tapped"
             kill -TERM "$loop_pid"
             return
+          fi
+          if [ "$x" -ge "$nx1" ] && [ "$x" -le "$nx2" ] && [ "$y" -ge "$ny1" ] && [ "$y" -le "$ny2" ] \
+             && [ "$sec" != "$last_next" ]; then
+            log "next page tapped"; last_next=$sec
+            kill -USR1 "$loop_pid"
           fi ;;
       esac
     done <<EVENTS
@@ -246,7 +267,7 @@ EVENTS
   done
 }
 
-# Sleep N seconds; a TERM (Home button, Stop tile) cuts it short right away.
+# Sleep N seconds; a TERM (Home, Stop tile) or USR1 (next page) cuts it short.
 wait_a_bit() {
   n=$1; [ "$n" -lt 1 ] && n=1
   sleep "$n" & wait $!
@@ -266,8 +287,8 @@ log "UI mode: $UI_MODE"
 
 # Let the library finish redrawing after the tile closes.
 sleep 4
-load_home_box
-log "Kindle Home button at x=$HL y=$HT (${HW}x$HH); watching $TOUCH"
+load_buttons
+log "buttons: Home at x=$HL y=$HT (${HW}x$HH), next page at x=$NL y=$NT (${NW}x$NH); watching $TOUCH"
 # Start watching for Home taps before pausing, so the grab is in place first.
 if [ "$UI_MODE" = freeze ]; then
   lua_home_watcher "$TOUCH" $$ &
@@ -284,32 +305,39 @@ lipc-set-prop com.lab126.cmd wirelessEnable 1 2>/dev/null
 
 trigger_render
 load_clock_box
-set -- $SCREENS
-count=$#; idx=0; changes=0; minute=0
+count=$(echo $SCREENS | wc -w); idx=0; changes=0; minute=0; on_screen=0
+screen_at() { i=0; for sc in $SCREENS; do [ "$i" -eq "$1" ] && { echo "$sc"; return; }; i=$((i + 1)); done; }
 
+# Show the next screen in the cycle ($1 = tapped for a manual page turn).
+next_screen() {
+  name=$(screen_at "$idx")
+  flash=0; [ $((changes % FULL_EVERY)) -eq 0 ] && flash=1
+  show_screen "$name" "$flash" "$1" && log "showing $name${1:+ ($1)}"
+  idx=$(( (idx + 1) % count )); changes=$((changes + 1)); on_screen=0
+}
+
+next_screen
 while true; do
   if ! userstore_ok; then
     log "USB storage connected; handing the screen back"
     exit 0
   fi
+  if [ "$NEXT_REQ" = 1 ]; then NEXT_REQ=0; next_screen tapped; fi
 
-  # Every SCREEN_MINUTES (and on the first pass): switch to the next screen.
-  if [ $((minute % SCREEN_MINUTES)) -eq 0 ]; then
-    eval "name=\${$((idx + 1))}"
-    flash=0; [ $((changes % FULL_EVERY)) -eq 0 ] && flash=1
-    show_screen "$name" "$flash" && log "showing $name"
-    idx=$(( (idx + 1) % count )); changes=$((changes + 1))
+  # Wake on the next minute boundary so the clock flips on time
+  # (a next-page tap wakes us early; the top of the loop handles it).
+  wait_a_bit $((60 - $(date +%S | sed 's/^0//')))
+  [ "$NEXT_REQ" = 1 ] && continue
+
+  minute=$((minute + 1)); on_screen=$((on_screen + 1))
+  if [ "$on_screen" -ge "$SCREEN_MINUTES" ]; then
+    next_screen
   else
     draw_clock
   fi
-
-  minute=$((minute + 1))
   if [ $((minute % TRIGGER_MINUTES)) -eq 0 ]; then
     lipc-set-prop com.lab126.cmd wirelessEnable 1 2>/dev/null
     trigger_render
     load_clock_box
   fi
-
-  # Wake on the next minute boundary so the clock flips on time.
-  wait_a_bit $((60 - $(date +%S | sed 's/^0//')))
 done

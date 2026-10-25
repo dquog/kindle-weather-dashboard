@@ -1,9 +1,10 @@
 -- touchwatch.lua — grab the Kindle touchscreen and report taps (runs on KOReader's LuaJIT).
 --
---   luajit touchwatch.lua DEVICE --check          exit 0 if DEVICE can be grabbed
---   luajit touchwatch.lua DEVICE X1 Y1 X2 Y2      print "TOUCH x y" for taps (at most one
---                                                 line a second) and "HOME x y", then exit,
---                                                 when a tap lands inside the box
+--   luajit touchwatch.lua DEVICE --check
+--       exit 0 if DEVICE can be grabbed
+--   luajit touchwatch.lua DEVICE NAME X1 Y1 X2 Y2 [NAME X1 Y1 X2 Y2 ...]
+--       print "TOUCH x y" for taps (at most one line a second) and "HIT NAME x y"
+--       once per press when a tap lands inside a named button; runs until killed
 --
 -- Grabbing (EVIOCGRAB) makes the touchscreen ours alone, so the frozen Kindle UI
 -- underneath never sees these taps. The grab ends when this process exits.
@@ -37,8 +38,15 @@ if arg[2] == "--check" then
   os.exit(0)
 end
 
-local x1, y1, x2, y2 = tonumber(arg[2]), tonumber(arg[3]), tonumber(arg[4]), tonumber(arg[5])
+local buttons = {}
+for i = 2, #arg, 5 do
+  buttons[#buttons + 1] = { name = arg[i], x1 = tonumber(arg[i + 1]), y1 = tonumber(arg[i + 2]),
+                            x2 = tonumber(arg[i + 3]), y2 = tonumber(arg[i + 4]) }
+end
 io.stdout:setvbuf("line")
+
+local PRESS_GAP = 0.8 -- seconds; samples closer together than this belong to the same press
+local last_hit_t = -1
 
 local EVSIZE = ffi.sizeof("struct dash_input_event")
 local buf = ffi.new("struct dash_input_event[64]")
@@ -54,10 +62,13 @@ while true do
     elseif e.type == 3 and (e.code == 54 or e.code == 1) then  -- ABS_MT_POSITION_Y / ABS_Y
       y = e.value
     elseif e.type == 0 and e.code == 0 and x and y then        -- SYN_REPORT: one complete sample
-      if x >= x1 and x <= x2 and y >= y1 and y <= y2 then
-        io.write("HOME ", x, " ", y, "\n")
-        C.close(fd)
-        os.exit(0)
+      local t = tonumber(e.tv_sec) + tonumber(e.tv_usec) / 1e6
+      for _, b in ipairs(buttons) do
+        if x >= b.x1 and x <= b.x2 and y >= b.y1 and y <= b.y2 then
+          if t - last_hit_t > PRESS_GAP then io.write("HIT ", b.name, " ", x, " ", y, "\n") end
+          last_hit_t = t
+          break
+        end
       end
       local sec = tonumber(e.tv_sec)
       if sec ~= last_logged then

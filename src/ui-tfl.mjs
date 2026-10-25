@@ -82,6 +82,6 @@ export function buildTflHtml(t, { width, height }) {
   </style></head><body><div class="page">
     ${pageHeader("TfL Status", dateStr)}
     ${body}
-    ${pageFooter(`Updated ${updated} · Live from TfL`)}
+    ${pageFooter(`Updated ${updated} · Live from TfL`, "Weather")}
   </div></body></html>`;
 }

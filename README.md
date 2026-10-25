@@ -9,7 +9,8 @@ A minimalist e-ink dashboard for a **jailbroken Kindle Paperwhite 7th gen**
   Elizabeth line, Overground and DLR line. Data from the [TfL API](https://api.tfl.gov.uk).
 
 The Kindle draws a **live clock** into the header of both screens every minute,
-and both screens share a **Kindle Home** button that exits the dashboard.
+and both screens share two footer buttons: a **next-page** button (“TfL status ›” /
+“Weather ›”) that switches screen straight away, and **Kindle Home**, which exits.
 
 No Raspberry Pi, no always-on computer.
 
@@ -34,15 +35,16 @@ GitHub Actions                              Kindle (WinterBreak + FBInk)
 | `src/frame.mjs` | shared header (incl. the clock box) |
 | `kindle/weather-dash.sh` | the on-device loop → `/mnt/us/dashboard/` |
 | `kindle/scriptlets/*.sh` | library tiles → `/mnt/us/documents/` |
-| `kindle/touchwatch.lua` | touchscreen grab + Home-tap detection → `/mnt/us/dashboard/` |
+| `kindle/touchwatch.lua` | touchscreen grab + footer-button tap detection → `/mnt/us/dashboard/` |
 | `kindle/fonts/` | clock font (Noto Sans Bold, OFL) → `/mnt/us/dashboard/fonts/` |
 
 ## Using it on the Kindle
 
 Tap **Weather Dashboard** in the library. The stock Kindle UI is frozen (as
 KOReader does it: touchscreen grabbed, window manager paused) and the dashboard
-takes over. **Tap the "Kindle Home" button** (bottom-right) to go straight back to
-the library; taps anywhere else are ignored and it never times out. The touch
+takes over. Tap the **next-page** button to switch screens now, or **Kindle Home**
+(bottom-right) to go straight back to the library; taps anywhere else are ignored
+and it never times out. The clock uses UK time with summer time built in. The touch
 grab uses KOReader's LuaJIT and `kindle/touchwatch.lua`; without KOReader it falls
 back to fully stopping the UI, which makes coming back a slow restart.
 Plugging the Kindle into a computer also hands the screen back, and holding the

@@ -142,7 +142,7 @@ export function buildHtml(d, { width, height }) {
       </div>
     </div>
 
-    ${pageFooter(`Updated ${updated} · PM2.5 ${d.air.pm25 ?? "—"} · Moon ${Math.round(d.moon.illumination * 100)}%`)}
+    ${pageFooter(`Updated ${updated} · PM2.5 ${d.air.pm25 ?? "—"}`, "TfL status")}
 
   </div></body></html>`;
 }

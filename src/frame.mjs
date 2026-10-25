@@ -18,10 +18,14 @@ export function frameCss(width, height) {
   /* Left blank on purpose: the Kindle draws a live clock into this box (see kindle/weather-dash.sh). */
   header .clock { width:190px; height:62px; flex:none; }
 
-  /* Footer with the Home button. The Kindle exits to its home screen when this
-     button is tapped (its position is published as home.txt by render.mjs). */
+  /* Footer buttons. The Kindle exits to its home screen when Home is tapped and
+     shows the next screen when the next-page button is tapped. render.mjs
+     publishes their positions (home.txt, next.txt), so both have fixed sizes. */
   .frame-footer { display:flex; justify-content:space-between; align-items:center;
-    margin-top:auto; padding-top:20px; border-top:2px solid #000; font-size:26px; font-weight:600; }
+    margin-top:auto; padding-top:20px; border-top:2px solid #000; font-size:25px; font-weight:600; }
+  .foot-buttons { display:flex; gap:16px; flex:none; }
+  .next { display:flex; align-items:center; justify-content:center; width:236px; height:78px;
+    border:4px solid #000; border-radius:16px; font-size:30px; font-weight:800; }
   .home { display:flex; align-items:center; gap:14px; height:78px; padding:0 30px 0 24px; flex:none;
     background:#000; color:#fff; border-radius:16px; font-size:31px; font-weight:800; }
   `;
@@ -40,9 +44,12 @@ const HOUSE = `<svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www
   <path d="M10 17 V34 H30 V17" fill="none" stroke="#fff" stroke-width="4.5" stroke-linejoin="round"/>
   <rect x="17" y="24" width="6" height="10" fill="#fff"/></svg>`;
 
-export function pageFooter(leftText) {
+export function pageFooter(leftText, nextLabel) {
   return `<footer class="frame-footer">
       <div>${leftText}</div>
-      <div class="home" id="home">${HOUSE}<span>Kindle Home</span></div>
+      <div class="foot-buttons">
+        <div class="next" id="next">${nextLabel} ›</div>
+        <div class="home" id="home">${HOUSE}<span>Kindle Home</span></div>
+      </div>
     </footer>`;
 }
