@@ -1,16 +1,18 @@
 # Kindle Dashboard (serverless)
 
 A minimalist e-ink dashboard for a **jailbroken Kindle Paperwhite 7th gen**
-(1072 × 1448, 8-bit grayscale). Two screens it cycles between:
+(1072 × 1448, 8-bit grayscale). Three screens it cycles between:
 
 - **Weather** — Old Street, London: temperature, 12-hour rain chance, temperature
   line, air quality, UV, sunrise/sunset, moon. Data from [Open-Meteo](https://open-meteo.com).
 - **TfL Status** — the Northern line featured at the top, plus every Tube,
   Elizabeth line, Overground and DLR line. Data from the [TfL API](https://api.tfl.gov.uk).
+- **BBC News** — the top 5 stories with summaries, from the BBC News
+  [top stories RSS feed](https://feeds.bbci.co.uk/news/rss.xml).
 
 The Kindle draws a **live clock** into the header of both screens every minute,
-and both screens share three footer buttons: the **↻ Updated …** stamp (tap to
-refresh now), a **next-page** button (“TfL status ›” / “Weather ›”) that switches
+and every screen shares three footer buttons: the **↻ Updated …** stamp (tap to
+refresh now), a **next-page** button (“TfL status ›” / “BBC News ›” / “Weather ›”) that switches
 screen straight away, and **Kindle Home**, which exits.
 
 No Raspberry Pi, no always-on computer.
@@ -33,6 +35,7 @@ GitHub Actions                              Kindle (WinterBreak + FBInk)
 | `src/render.mjs` | renders both screens + `clock.txt` |
 | `src/data.mjs`, `src/ui.mjs` | weather screen |
 | `src/data-tfl.mjs`, `src/ui-tfl.mjs` | TfL screen |
+| `src/data-news.mjs`, `src/ui-news.mjs` | BBC News screen |
 | `src/frame.mjs` | shared header (incl. the clock box) |
 | `kindle/weather-dash.sh` | the on-device loop → `/mnt/us/dashboard/` |
 | `kindle/scriptlets/*.sh` | library tiles → `/mnt/us/documents/` |

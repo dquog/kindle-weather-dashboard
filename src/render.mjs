@@ -1,6 +1,6 @@
 // Orchestrates: load config -> fetch data -> build HTML -> screenshot (Playwright)
 // -> convert to exact-size 8-bit grayscale PNG (sharp).
-// Output: public/dashboard.png (weather), public/tfl.png (TfL status),
+// Output: public/dashboard.png (weather), public/tfl.png (TfL status), public/news.png (BBC News),
 //         public/clock.txt, home.txt, next.txt, refresh.txt ("top left width height"
 //         of the header clock box and the footer buttons, used by the Kindle) and
 //         public/stamp.txt (when this render ran; the Kindle watches it after a refresh).
@@ -13,6 +13,8 @@ import { fetchData } from "./data.mjs";
 import { buildHtml } from "./ui.mjs";
 import { fetchTfl } from "./data-tfl.mjs";
 import { buildTflHtml } from "./ui-tfl.mjs";
+import { fetchNews } from "./data-news.mjs";
+import { buildNewsHtml } from "./ui-news.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const keepHtml = process.argv.includes("--keep-html");
@@ -32,9 +34,15 @@ async function main() {
   if (tfl.error) console.log(`  TfL unavailable: ${tfl.error}`);
   else console.log(`  ${tfl.lines.length} lines, featured ${tfl.featured?.name}: ${tfl.featured?.status}`);
 
+  console.log("Fetching BBC News top stories...");
+  const news = await fetchNews(config);
+  if (news.error) console.log(`  BBC News unavailable: ${news.error}`);
+  else console.log(`  ${news.items.length} stories, top: ${news.items[0].title}`);
+
   const screens = [
     { file: "dashboard", html: buildHtml(weather, { width, height }) },
     { file: "tfl", html: buildTflHtml(tfl, { width, height }) },
+    { file: "news", html: buildNewsHtml(news, { width, height }, "Weather") },
   ];
 
   const browser = await chromium.launch({ args: ["--no-sandbox", "--force-color-profile=srgb"] });

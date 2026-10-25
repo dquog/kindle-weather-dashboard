@@ -24,7 +24,7 @@ export TZ="GMT0BST,M3.5.0/1,M10.5.0"
 
 # Where the rendered screens live (GitHub Pages).
 BASE_URL="https://dquog.github.io/kindle-weather-dashboard"
-SCREENS="dashboard tfl"   # PNG names, shown in this order
+SCREENS="dashboard tfl news"   # PNG names, shown in this order (weather, TfL, BBC News)
 
 SCREEN_MINUTES=2     # how long each screen stays up before switching
 TRIGGER_MINUTES=15   # ask GitHub for a fresh render this often (needs the token file)
