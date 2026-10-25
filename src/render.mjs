@@ -1,8 +1,9 @@
 // Orchestrates: load config -> fetch data -> build HTML -> screenshot (Playwright)
 // -> convert to exact-size 8-bit grayscale PNG (sharp).
 // Output: public/dashboard.png (weather), public/tfl.png (TfL status),
-//         public/clock.txt, home.txt, next.txt ("top left width height" of the
-//         header clock box and the footer buttons, used by the Kindle).
+//         public/clock.txt, home.txt, next.txt, refresh.txt ("top left width height"
+//         of the header clock box and the footer buttons, used by the Kindle) and
+//         public/stamp.txt (when this render ran; the Kindle watches it after a refresh).
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -38,7 +39,7 @@ async function main() {
 
   const browser = await chromium.launch({ args: ["--no-sandbox", "--force-color-profile=srgb"] });
   const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
-  const boxes = { clock: [], home: [], next: [] };
+  const boxes = { clock: [], home: [], next: [], refresh: [] };
   for (const s of screens) {
     if (keepHtml) await writeFile(join(out, `${s.file}.html`), s.html);
     await page.setContent(s.html, { waitUntil: "networkidle" });
@@ -68,6 +69,8 @@ async function main() {
     await writeFile(join(out, `${id}.txt`), list[0] + "\n");
     console.log(`${id} box (top left width height): ${list[0]}`);
   }
+
+  await writeFile(join(out, "stamp.txt"), `${Date.now()}\n`);
 
   // Minimal landing page for GitHub Pages (also lets you eyeball both screens in a browser).
   const t = Date.now();

@@ -18,12 +18,14 @@ export function frameCss(width, height) {
   /* Left blank on purpose: the Kindle draws a live clock into this box (see kindle/weather-dash.sh). */
   header .clock { width:190px; height:62px; flex:none; }
 
-  /* Footer buttons. The Kindle exits to its home screen when Home is tapped and
-     shows the next screen when the next-page button is tapped. render.mjs
-     publishes their positions (home.txt, next.txt), so both have fixed sizes. */
-  .frame-footer { display:flex; justify-content:space-between; align-items:center;
+  /* Footer buttons. The Kindle refreshes when the Updated stamp is tapped, shows the
+     next screen for the next-page button and exits for Home. render.mjs publishes
+     their positions (refresh.txt, next.txt, home.txt), so their sizes are fixed. */
+  .frame-footer { display:flex; gap:16px; align-items:center;
     margin-top:auto; padding-top:20px; border-top:2px solid #000; font-size:25px; font-weight:600; }
   .foot-buttons { display:flex; gap:16px; flex:none; }
+  .refresh { display:flex; align-items:center; gap:12px; flex:1; min-width:0; height:78px; padding:0 18px;
+    border:3px solid #000; border-radius:16px; font-size:24px; font-weight:700; white-space:nowrap; overflow:hidden; }
   .next { display:flex; align-items:center; justify-content:center; width:236px; height:78px;
     border:4px solid #000; border-radius:16px; font-size:30px; font-weight:800; }
   .home { display:flex; align-items:center; gap:14px; height:78px; padding:0 30px 0 24px; flex:none;
@@ -51,9 +53,13 @@ export function updatedStamp(date) {
   });
 }
 
-export function pageFooter(leftText, nextLabel) {
+const REFRESH = `<svg width="30" height="30" viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg" style="flex:none">
+  <path d="M24 9 A10 10 0 1 0 25.5 17" fill="none" stroke="#000" stroke-width="3.5" stroke-linecap="round"/>
+  <polygon points="19,4 27,4 27,12" fill="#000"/></svg>`;
+
+export function pageFooter(stampText, nextLabel) {
   return `<footer class="frame-footer">
-      <div>${leftText}</div>
+      <div class="refresh" id="refresh">${REFRESH}<span>${stampText}</span></div>
       <div class="foot-buttons">
         <div class="next" id="next">${nextLabel} ›</div>
         <div class="home" id="home">${HOUSE}<span>Kindle Home</span></div>

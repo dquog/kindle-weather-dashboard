@@ -9,8 +9,9 @@ A minimalist e-ink dashboard for a **jailbroken Kindle Paperwhite 7th gen**
   Elizabeth line, Overground and DLR line. Data from the [TfL API](https://api.tfl.gov.uk).
 
 The Kindle draws a **live clock** into the header of both screens every minute,
-and both screens share two footer buttons: a **next-page** button (“TfL status ›” /
-“Weather ›”) that switches screen straight away, and **Kindle Home**, which exits.
+and both screens share three footer buttons: the **↻ Updated …** stamp (tap to
+refresh now), a **next-page** button (“TfL status ›” / “Weather ›”) that switches
+screen straight away, and **Kindle Home**, which exits.
 
 No Raspberry Pi, no always-on computer.
 
@@ -42,7 +43,9 @@ GitHub Actions                              Kindle (WinterBreak + FBInk)
 
 Tap **Weather Dashboard** in the library. The stock Kindle UI is frozen (as
 KOReader does it: touchscreen grabbed, window manager paused) and the dashboard
-takes over. Tap the **next-page** button to switch screens now, or **Kindle Home**
+takes over. Tap the **↻ Updated** stamp to refresh now (it asks GitHub for a render
+and redraws when it's live, about 2 minutes; needs the token), the **next-page**
+button to switch screens now, or **Kindle Home**
 (bottom-right) to go straight back to the library; taps anywhere else are ignored
 and it never times out. The clock uses UK time with summer time built in. The touch
 grab uses KOReader's LuaJIT and `kindle/touchwatch.lua`; without KOReader it falls

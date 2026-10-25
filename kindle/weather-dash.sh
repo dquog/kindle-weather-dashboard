@@ -108,6 +108,9 @@ cleanup() {
   pkill -f dash-touchwatch.lua 2>/dev/null
   [ -n "$WATCHER_PID" ] && kill "$WATCHER_PID" 2>/dev/null
   pkill -f "dd if=/dev/input/" 2>/dev/null
+  # Stop a refresh in progress, so it can't draw over the restored Kindle screen.
+  [ -s /tmp/dash-refresh.pid ] && kill "$(cat /tmp/dash-refresh.pid)" 2>/dev/null
+  rm -f /tmp/dash-refresh.pid
   rm -f "$PIDFILE"
   lipc-set-prop com.lab126.powerd preventScreenSaver 0 2>/dev/null
   resume_ui
@@ -117,6 +120,8 @@ trap cleanup EXIT
 trap 'exit 0' TERM INT
 NEXT_REQ=0
 trap 'NEXT_REQ=1' USR1   # sent by the touch watcher when the next-page button is tapped
+REDRAW_REQ=0
+trap 'REDRAW_REQ=1' USR2 # sent by the refresh worker once a fresh render is live
 trap '' HUP
 
 # True while the Kindle's USB storage (/mnt/us) is mounted on the Kindle itself.
@@ -206,29 +211,78 @@ find_touch_device() {
 
 # Footer button boxes published by the renderer: "top left width height".
 load_buttons() {
-  for b in home next; do
+  for b in home next refresh; do
     curl -fsS --max-time 30 -o "/tmp/dash-$b.txt" "$BASE_URL/$b.txt?t=$(date +%s)" || rm -f "/tmp/dash-$b.txt"
   done
   [ -s /tmp/dash-home.txt ] && read -r HT HL HW HH < /tmp/dash-home.txt
   [ -s /tmp/dash-next.txt ] && read -r NT NL NW NH < /tmp/dash-next.txt
+  [ -s /tmp/dash-refresh.txt ] && read -r RT RL RW RH < /tmp/dash-refresh.txt
   HT=${HT:-1324}; HL=${HL:-724}; HW=${HW:-298}; HH=${HH:-78}
   NT=${NT:-1324}; NL=${NL:-472}; NW=${NW:-236}; NH=${NH:-78}
+  RT=${RT:-1324}; RL=${RL:-50}; RW=${RW:-406}; RH=${RH:-78}
 }
 
 # "x1 y1 x2 y2" of a button box, padded for finger slop.
 padded() { echo "$(($2 - BUTTON_PAD_X)) $(($1 - BUTTON_PAD_Y)) $(($2 + $3 + BUTTON_PAD_X)) $(($1 + $4 + BUTTON_PAD_Y))"; }
 
+# Write a short message inside the refresh button (over the Updated stamp).
+draw_note() {
+  "$FBINK" -q -m -t regular="$FONT",px=40,top=$((RT + 19)),left=$((RL + 10)),right=$((SCREEN_W - RL - RW + 10)),padding=HORIZONTAL \
+    "$1"
+}
+
+# Runs in the background after the refresh button is tapped: ask GitHub for a
+# render, wait for it to go live (stamp.txt changes), then tell the loop (USR2)
+# to redraw the current screen.
+refresh_worker() {
+  loop_pid=$1
+  if [ ! -s "$TOKEN_FILE" ]; then
+    log "refresh: no GitHub token"
+    draw_note "Refresh needs the GitHub token"; sleep 5
+  else
+    draw_note "Refreshing… about 2 min"
+    old=$(curl -fsS --max-time 20 "$BASE_URL/stamp.txt?t=$(date +%s)" 2>/dev/null)
+    trigger_render
+    i=0; new=""
+    while [ "$i" -lt 16 ]; do   # 16 x 15s = 4 minutes
+      sleep 15; i=$((i + 1))
+      new=$(curl -fsS --max-time 20 "$BASE_URL/stamp.txt?t=$(date +%s)" 2>/dev/null)
+      [ -n "$new" ] && [ "$new" != "$old" ] && break
+    done
+    if [ -n "$new" ] && [ "$new" != "$old" ]; then
+      log "refresh: new render is live"
+    else
+      log "refresh: no new render after 4 minutes"
+      draw_note "Refresh timed out - try again"; sleep 5
+    fi
+  fi
+  rm -f /tmp/dash-refresh.pid
+  kill -USR2 "$loop_pid" 2>/dev/null
+}
+
+start_refresh() {
+  if [ -s /tmp/dash-refresh.pid ] && kill -0 "$(cat /tmp/dash-refresh.pid)" 2>/dev/null; then
+    log "refresh tapped (already refreshing)"
+    return
+  fi
+  log "refresh tapped"
+  refresh_worker "$1" &
+  echo $! > /tmp/dash-refresh.pid
+}
+
 # Freeze mode: the LuaJIT helper grabs the touchscreen and reports taps.
 lua_home_watcher() {
   dev=$1; loop_pid=$2
-  "$LUAJIT" "$TOUCHWATCH" "$dev" home $(padded $HT $HL $HW $HH) next $(padded $NT $NL $NW $NH) 2>&1 |
+  "$LUAJIT" "$TOUCHWATCH" "$dev" home $(padded $HT $HL $HW $HH) next $(padded $NT $NL $NW $NH) \
+      refresh $(padded $RT $RL $RW $RH) 2>&1 |
   while read -r kind arg1 arg2 arg3; do
     case "$kind $arg1" in
       TOUCH*)     log "touch at $arg1,$arg2" ;;
       "HIT home") log "Kindle Home tapped"; kill -TERM "$loop_pid"; break ;;
       "HIT next") log "next page tapped"; kill -USR1 "$loop_pid" ;;
+      "HIT refresh") start_refresh "$loop_pid" ;;
       *)     # The grab is gone, so taps could reach the hidden UI: leave safely.
-             log "touch helper stopped ($kind $tx $ty); exiting"; kill -TERM "$loop_pid"; break ;;
+             log "touch helper stopped ($kind $arg1 $arg2 $arg3); exiting"; kill -TERM "$loop_pid"; break ;;
     esac
   done
 }
@@ -244,7 +298,8 @@ home_watcher() {
   fi
   set -- $(padded $HT $HL $HW $HH); x1=$1; y1=$2; x2=$3; y2=$4
   set -- $(padded $NT $NL $NW $NH); nx1=$1; ny1=$2; nx2=$3; ny2=$4
-  x=""; y=""; logged=""; last_next=""; fails=0
+  set -- $(padded $RT $RL $RW $RH); rx1=$1; ry1=$2; rx2=$3; ry2=$4
+  x=""; y=""; logged=""; last_next=""; last_refresh=""; fails=0
   while :; do
     # Each od line is one event: offset, sec(lo,hi), usec(lo,hi), type, code, value(lo,hi).
     events=$(dd if="$dev" bs=1024 count=1 2>/dev/null | od -v -d | awk 'NF >= 9 { printf "%d %d %d %d\n", $6, $7, $8, $2 }')
@@ -274,6 +329,11 @@ home_watcher() {
              && [ "$sec" != "$last_next" ]; then
             log "next page tapped"; last_next=$sec
             kill -USR1 "$loop_pid"
+          fi
+          if [ "$x" -ge "$rx1" ] && [ "$x" -le "$rx2" ] && [ "$y" -ge "$ry1" ] && [ "$y" -le "$ry2" ] \
+             && [ "$sec" != "$last_refresh" ]; then
+            last_refresh=$sec
+            start_refresh "$loop_pid"
           fi ;;
       esac
     done <<EVENTS
@@ -282,7 +342,8 @@ EVENTS
   done
 }
 
-# Sleep N seconds; a TERM (Home, Stop tile) or USR1 (next page) cuts it short.
+# Sleep N seconds; a TERM (Home, Stop tile), USR1 (next page) or USR2 (refresh
+# done) cuts it short.
 wait_a_bit() {
   n=$1; [ "$n" -lt 1 ] && n=1
   sleep "$n" & wait $!
@@ -303,7 +364,7 @@ log "UI mode: $UI_MODE"
 # Let the library finish redrawing after the tile closes.
 sleep 4
 load_buttons
-log "buttons: Home at x=$HL y=$HT (${HW}x$HH), next page at x=$NL y=$NT (${NW}x$NH); watching $TOUCH"
+log "buttons: refresh at x=$RL y=$RT (${RW}x$RH), next page at x=$NL y=$NT (${NW}x$NH), Home at x=$HL y=$HT (${HW}x$HH); watching $TOUCH"
 # Start watching for Home taps before pausing, so the grab is in place first.
 if [ "$UI_MODE" = freeze ]; then
   lua_home_watcher "$TOUCH" $$ &
@@ -321,7 +382,7 @@ lipc-set-prop com.lab126.cmd wirelessEnable 1 2>/dev/null
 trigger_render
 load_clock_box
 # Copies from an earlier run may be hours old: never show those.
-rm -f /tmp/dash-*.png /tmp/dash-*.png.*
+rm -f /tmp/dash-*.png /tmp/dash-*.png.* /tmp/dash-refresh.pid
 count=$(echo $SCREENS | wc -w); idx=0; changes=0; minute=0; on_screen=0
 screen_at() { i=0; for sc in $SCREENS; do [ "$i" -eq "$1" ] && { echo "$sc"; return; }; i=$((i + 1)); done; }
 
@@ -330,6 +391,7 @@ next_screen() {
   name=$(screen_at "$idx")
   flash=0; [ $((changes % FULL_EVERY)) -eq 0 ] && flash=1
   show_screen "$name" "$flash" "$1" && log "showing $name${1:+ ($1)}"
+  CURRENT=$name
   idx=$(( (idx + 1) % count )); changes=$((changes + 1)); on_screen=0
   # Fetch the screen that comes next now, so a tap on the next-page button is instant.
   fetch_screen "$(screen_at "$idx")" bg 2>/dev/null &
@@ -342,11 +404,17 @@ while true; do
     exit 0
   fi
   if [ "$NEXT_REQ" = 1 ]; then NEXT_REQ=0; next_screen tapped; fi
+  if [ "$REDRAW_REQ" = 1 ]; then
+    # A refresh finished: show the fresh render of the current screen.
+    REDRAW_REQ=0
+    show_screen "$CURRENT" 1 && log "showing $CURRENT (refreshed)"
+    fetch_screen "$(screen_at "$idx")" bg 2>/dev/null &
+  fi
 
   # Wake on the next minute boundary so the clock flips on time
-  # (a next-page tap wakes us early; the top of the loop handles it).
+  # (a next-page tap or finished refresh wakes us early; the loop top handles it).
   wait_a_bit $((60 - $(date +%S | sed 's/^0//')))
-  [ "$NEXT_REQ" = 1 ] && continue
+  { [ "$NEXT_REQ" = 1 ] || [ "$REDRAW_REQ" = 1 ]; } && continue
 
   minute=$((minute + 1)); on_screen=$((on_screen + 1))
   if [ "$on_screen" -ge "$SCREEN_MINUTES" ]; then
